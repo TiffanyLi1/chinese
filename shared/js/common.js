@@ -65,21 +65,50 @@ function renderZh(str, { speak = true, cls = '' } = {}) {
   return wrap;
 }
 
-// ---------- voice (text-to-speech) ----------
+// ---------- voice ----------
+// Prefers pre-recorded clips (<student>/audio/manifest.js, built by scripts/build_audio.py).
+// Falls back to the browser's Chinese voice, skipping robotic ones (eSpeak, macOS novelty voices).
+const BAD_VOICES = /eSpeak|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley/i;
 const Voice = {
   voice: null,
+  player: new Audio(),
   init() {
     if (!('speechSynthesis' in window)) return;
     const pick = () => {
-      const vs = speechSynthesis.getVoices();
-      const zh = vs.filter(v => /^zh[-_]CN/i.test(v.lang) || /普通话|Mandarin/i.test(v.name));
-      this.voice = zh.find(v => /Google/.test(v.name)) || zh[0] || null;
+      const zh = speechSynthesis.getVoices().filter(v =>
+        (/^zh[-_]CN/i.test(v.lang) || /普通话|Mandarin/i.test(v.name)) && !BAD_VOICES.test(v.name));
+      this.voice = zh.find(v => /Google/.test(v.name)) || zh.find(v => /Tingting|Ting-Ting|Lili|Yu-shu/i.test(v.name)) || zh[0] || null;
     };
     pick();
     speechSynthesis.onvoiceschanged = pick;
   },
-  name() { return this.voice ? this.voice.name : 'none found'; },
-  speak(text, rate = 0.85) {
+  name() {
+    const clips = Object.keys(window.AUDIO || {}).length;
+    return (clips ? `recorded clips (${clips})` : 'no recorded clips') + ' · backup: ' + (this.voice ? this.voice.name : 'none');
+  },
+  clip(text, who) {
+    const A = window.AUDIO || {};
+    const f = (who && A[who + ':' + text]) || A[text];
+    return f ? 'audio/' + f : null;
+  },
+  // rate: 0.85 = normal, ~0.6 = slow, ~0.45 = very slow. who: optional voice ('grandpa').
+  speak(text, rate = 0.85, who) {
+    this.player.pause();
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    const src = this.clip(text, who);
+    if (src) {
+      return new Promise(res => {
+        const p = this.player;
+        p.src = src;
+        p.playbackRate = rate >= 0.8 ? 1 : rate >= 0.55 ? 0.8 : 0.65;
+        p.onended = () => res(true);
+        p.onerror = () => this.tts(text, rate).then(res);
+        p.play().catch(() => this.tts(text, rate).then(res));
+      });
+    }
+    return this.tts(text, rate);
+  },
+  tts(text, rate) {
     return new Promise(res => {
       if (!('speechSynthesis' in window)) return res(false);
       speechSynthesis.cancel();
@@ -94,13 +123,15 @@ const Voice = {
       }, 60);
     });
   },
+  stop() { this.player.pause(); if ('speechSynthesis' in window) speechSynthesis.cancel(); },
 };
 Voice.init();
 
-function speakBtns(text, { slow = true } = {}) {
+function speakBtns(text, { slow = true, who, onplay } = {}) {
+  const play = rate => { if (onplay) onplay(); return Voice.speak(text, rate, who); };
   return h('span', { class: 'speakbtns' },
-    h('button', { class: 'btn icon', title: 'Listen', onclick: () => Voice.speak(text) }, '🔊'),
-    slow && h('button', { class: 'btn icon', title: 'Listen slowly', onclick: () => Voice.speak(text, 0.55) }, '🐢'));
+    h('button', { class: 'btn icon', title: 'Listen', onclick: () => play(0.85) }, '🔊'),
+    slow && h('button', { class: 'btn icon', title: 'Listen slowly', onclick: () => play(0.55) }, '🐢'));
 }
 
 // ---------- ear (speech recognition + recording) ----------

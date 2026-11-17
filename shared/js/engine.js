@@ -62,7 +62,7 @@ function micButton(parent, { label = '🎤 Click and speak', onResult }) {
     if (listening) { Ear.stop(); return; }
     listening = true; btn.classList.add('on'); btn.textContent = '⏺ Listening… (click when done)';
     status.textContent = '';
-    speechSynthesis.cancel();
+    Voice.stop();
     const r = await Ear.listen();
     listening = false; btn.classList.remove('on'); btn.textContent = '🎤 Try again';
     onResult(r, status);
@@ -84,11 +84,88 @@ STEPS.story = async (st) => {
   const c = card(st.title, st.intro);
   if (st.art) c.append(h('div', { class: 'art' }, st.art));
   for (const line of st.lines || []) {
-    c.append(h('div', { class: 'line' }, speakBtns(zhText(line.zh)), renderZh(line.zh), h('div', { class: 'en' }, line.en)));
+    c.append(h('div', { class: 'line' }, speakBtns(zhText(line.zh), { who: line.v }), renderZh(line.zh), h('div', { class: 'en' }, line.en)));
   }
   if (st.outro) c.append(h('p', { class: 'intro', html: st.outro }));
   await nextBtn(c, st.next || "Let's go ▶");
   return null;
+};
+
+// ---------- read after me: listen, then read each line aloud N times (recorded + checked) ----------
+STEPS['read-after'] = async (st) => {
+  const need = st.times || 2;
+  const c = card(st.title, (st.intro ? st.intro + '<br>' : '') +
+    `<b>For each line:</b> 1) click 🔊 and listen &nbsp; 2) click 🎤 and read it aloud. ` +
+    `Read every line <b>${need} times</b> to unlock Next. Red characters were not clear — try again.`);
+  if (st.art) c.append(h('div', { class: 'art' }, st.art));
+  const rows = [];
+  let busy = false;
+  const next = h('button', { class: 'btn primary big', disabled: true }, 'Next ▶');
+  const nextNote = h('div', { class: 'muted' });
+  const refresh = () => {
+    const left = rows.filter(r => r.reads < need).length;
+    next.disabled = left > 0;
+    nextNote.textContent = left ? `${left} line${left > 1 ? 's' : ''} left to read.` : '';
+  };
+  for (const line of st.lines) {
+    const text = zhText(line.zh);
+    const row = { text, reads: 0, tries: 0, log: [], struggled: false };
+    rows.push(row);
+    const badge = h('span', { class: 'readcount' }, `Read 0/${need}`);
+    const mic = h('button', { class: 'btn mic', disabled: true, title: 'Listen first' }, '🎤 Read');
+    const status = h('div', { class: 'micstatus' });
+    const speak = speakBtns(text, { who: line.v, onplay: () => { mic.disabled = false; mic.title = ''; } });
+    if (!Ear.supported) { mic.hidden = true; status.append(h('div', { class: 'tip' }, EAR_ERRORS.unsupported)); row.reads = need; }
+    mic.onclick = async () => {
+      if (busy) { Ear.stop(); return; }
+      busy = true; mic.classList.add('on'); mic.textContent = '⏺ Listening… (click when done)';
+      Voice.stop();
+      const r = await Ear.listen();
+      busy = false; mic.classList.remove('on'); mic.textContent = '🎤 Read';
+      status.innerHTML = '';
+      if (r.error) { status.append(h('div', { class: 'oops' }, EAR_ERRORS[r.error] || ('Problem: ' + r.error))); return; }
+      row.tries++;
+      const g = gradeSpeech(line.zh, r.alts);
+      // A real attempt counts; after 4 tries we let him move on but note it.
+      const counts = g.pass || g.sim >= 0.6 || row.tries >= 4;
+      if (counts && row.reads < need) row.reads++;
+      if (!g.pass && g.sim < 0.6 && row.tries >= 4) row.struggled = true;
+      row.log.push(`"${g.heard}"${g.pass ? ' ✅' : ` 🟠${Math.round(g.sim * 100)}%`}`);
+      status.append(h('div', { class: 'heardrow' }, renderMarks(line.zh, g.marks), ' ', playbackBtn(r.audioUrl)),
+        h('div', { class: g.pass ? 'good' : 'oops' }, g.pass ? '✅ Clear!' : counts ? '🟠 Counted — but listen again and fix the red ones.' : '❌ Not clear enough — listen and try again.'));
+      badge.textContent = row.reads >= need ? `✅ ${need}/${need}` : `Read ${row.reads}/${need}`;
+      badge.classList.toggle('done', row.reads >= need);
+      refresh();
+    };
+    c.append(h('div', { class: 'line readrow' }, speak, renderZh(line.zh), h('div', { class: 'en' }, line.en),
+      h('div', { class: 'rowctl' }, mic, badge), status));
+  }
+  if (st.outro) c.append(h('p', { class: 'intro', html: st.outro }));
+  c.append(h('div', { class: 'actions' }, nextNote, next));
+  refresh();
+  await new Promise(res => next.onclick = res);
+  const clear = rows.filter(r => r.log.some(x => x.includes('✅'))).length;
+  return {
+    name: st.title, score: [clear, rows.length],
+    lines: ['(score = lines read clearly at least once)', ...rows.map(r => `${r.text} → ${r.log.join(' / ') || '(no mic)'}${r.struggled ? ' ⚠️ struggled' : ''}`)],
+  };
+};
+
+// ---------- reading check: Chinese only, no pinyin, no sound until answered ----------
+STEPS['read-check'] = async (st) => {
+  let right = 0; const lines = [];
+  for (let i = 0; i < st.items.length; i++) {
+    const it = st.items[i], text = zhText(it.zh);
+    const c = card(st.title, st.intro);
+    c.append(counter(i, st.items.length), h('div', { class: 'line big nopy' }, renderZh(it.zh, { speak: false })));
+    const opts = shuffle(it.opts.map((o, k) => ({ o, k })));
+    const r = await askChoice(c, opts.map(x => x.o), opts.findIndex(x => x.k === 0), {
+      onReveal: () => { Voice.speak(text); return h('div', { class: 'reveal' }, renderZh(it.zh), h('div', { class: 'en' }, it.opts[0])); },
+    });
+    if (r.correct) right++;
+    lines.push(`${r.correct ? '✅' : r.idk ? '🤷' : '❌'} ${text}${r.correct || r.idk ? '' : ' → picked "' + opts[r.chosen].o + '"'}`);
+  }
+  return { name: st.title, score: [right, st.items.length], lines };
 };
 
 // ---------- setup: Mom's email (saved only on this computer) ----------
@@ -236,7 +313,7 @@ STEPS['listen-check'] = async (st) => {
     const text = zhText(it.zh);
     const c = card(st.title, st.intro);
     let plays = 0;
-    const play = rate => { plays++; Voice.speak(text, rate); };
+    const play = rate => { plays++; Voice.speak(text, rate, it.v); };
     c.append(counter(i, st.items.length),
       h('div', { class: 'actions center' },
         h('button', { class: 'btn primary big', onclick: () => play(0.85) }, '🔊 Play'),
@@ -479,7 +556,8 @@ STEPS['paper-writing'] = async (st) => {
 // ---------- finish: report + reward ----------
 function buildReport(L, sections, t0) {
   const mins = Math.round((Date.now() - t0) / 60000);
-  const dev = /CrOS/.test(navigator.userAgent) ? 'Chromebook' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'other';
+  const ua = navigator.userAgent;
+  const dev = /CrOS/.test(ua) ? 'Chromebook' : /Android/.test(ua) ? 'Android' : /iPad|iPhone/.test(ua) ? 'iPad/iPhone' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : 'other';
   const out = [`🐴 ${APP.name} · ${L.id} · ${L.title}`, `${new Date().toLocaleString()} · ${mins} min · ${dev}`];
   const scored = sections.filter(s => s.score);
   if (scored.length) out.push('SCORES: ' + scored.map(s => `${s.name} ${s.score[0]}/${s.score[1]}`).join(' · '));

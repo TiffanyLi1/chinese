@@ -146,3 +146,11 @@ pre.report { white-space: pre-wrap; font-size: 13px; background: #fff; border: 1
 }
 .tianzige.static { font-family: var(--zh); font-size: 120px; line-height: 146px; }
 .wpy { color: var(--sky); font-size: 20px; }
+
+/* read after me */
+.readrow { position: relative; }
+.rowctl { display: flex; align-items: center; gap: 10px; flex-basis: 100%; }
+.readcount { font-size: 14px; font-weight: 600; color: var(--muted); }
+.readcount.done { color: var(--green); }
+.btn.mic:disabled { opacity: .45; }
+.nopy rt { display: none; }
