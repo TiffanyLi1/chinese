@@ -154,3 +154,4 @@ pre.report { white-space: pre-wrap; font-size: 13px; background: #fff; border: 1
 .readcount.done { color: var(--green); }
 .btn.mic:disabled { opacity: .45; }
 .nopy rt { display: none; }
+.bigchar.long { font-size: 80px; }

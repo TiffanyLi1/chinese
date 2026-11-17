@@ -286,3 +286,122 @@ function streak() {
   }
   return n;
 }
+
+// ---------- pinyin: parse, re-mark tones, and make look-alike answer choices ----------
+const Pinyin = (() => {
+  const MARKS = { a: 'āáǎà', e: 'ēéěè', i: 'īíǐì', o: 'ōóǒò', u: 'ūúǔù', ü: 'ǖǘǚǜ' };
+  const UNMARK = {};
+  for (const [v, ms] of Object.entries(MARKS)) [...ms].forEach((m, k) => UNMARK[m] = [v, k + 1]);
+  const VALID = new Set(`a ai an ang ao ba bai ban bang bao bei ben beng bi bian biao bie bin bing bo bu
+    pa pai pan pang pao pei pen peng pi pian piao pie pin ping po pou pu ma mai man mang mao me mei men meng mi
+    mian miao mie min ming miu mo mou mu fa fan fang fei fen feng fo fou fu da dai dan dang dao de dei den deng di
+    dian diao die ding diu dong dou du duan dui dun duo ta tai tan tang tao te teng ti tian tiao tie ting tong tou
+    tu tuan tui tun tuo na nai nan nang nao ne nei nen neng ni nian niang niao nie nin ning niu nong nou nu nuan
+    nuo nü nüe la lai lan lang lao le lei leng li lia lian liang liao lie lin ling liu long lou lu luan lun luo lü
+    lüe ga gai gan gang gao ge gei gen geng gong gou gu gua guai guan guang gui gun guo ka kai kan kang kao ke ken
+    keng kong kou ku kua kuai kuan kuang kui kun kuo ha hai han hang hao he hei hen heng hong hou hu hua huai huan
+    huang hui hun huo ji jia jian jiang jiao jie jin jing jiong jiu ju juan jue jun qi qia qian qiang qiao qie qin
+    qing qiong qiu qu quan que qun xi xia xian xiang xiao xie xin xing xiong xiu xu xuan xue xun zha zhai zhan
+    zhang zhao zhe zhei zhen zheng zhi zhong zhou zhu zhua zhuai zhuan zhuang zhui zhun zhuo cha chai chan chang
+    chao che chen cheng chi chong chou chu chua chuai chuan chuang chui chun chuo sha shai shan shang shao she shei
+    shen sheng shi shou shu shua shuai shuan shuang shui shun shuo ran rang rao re ren reng ri rong rou ru ruan rui
+    run ruo za zai zan zang zao ze zei zen zeng zi zong zou zu zuan zui zun zuo ca cai can cang cao ce cen ceng ci
+    cong cou cu cuan cui cun cuo sa sai san sang sao se sen seng si song sou su suan sui sun suo ya yan yang yao ye
+    yi yin ying yo yong you yu yuan yue yun wa wai wan wang wei wen weng wo wu e ei en eng er o ou`.split(/\s+/));
+  const INITIALS = ['zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w'];
+  const INIT_GROUPS = [['zh', 'z', 'j'], ['ch', 'c', 'q'], ['sh', 's', 'x'], ['b', 'p'], ['d', 't'], ['g', 'k'], ['n', 'l'], ['f', 'h'], ['r', 'l']];
+  const FINAL_PAIRS = [['ing', 'in'], ['eng', 'en'], ['ang', 'an'], ['iang', 'ian'], ['uang', 'uan'], ['ou', 'uo'],
+    ['ao', 'ou'], ['ie', 'ei'], ['iu', 'ui'], ['ong', 'eng'], ['iao', 'ao'], ['ian', 'an'], ['ui', 'ei'], ['u', 'ü'], ['i', 'ie']];
+  const TONE_SWAP = { 1: [4, 2, 3], 2: [3, 1, 4], 3: [2, 4, 1], 4: [1, 3, 2], 5: [4, 1, 3] };
+
+  // "xiǎomāo" → [{s:'xiao', t:3}, {s:'mao', t:1}] (null if it can't be parsed)
+  function parse(str) {
+    const words = str.toLowerCase().split(/[\s']+/).filter(Boolean);
+    const out = [];
+    for (const w of words) {
+      let plain = '', tones = [];
+      for (const ch of w) { const u = UNMARK[ch]; plain += u ? u[0] : ch; tones.push(u ? u[1] : 0); }
+      plain = plain.replace(/v/g, 'ü');
+      // Split into valid syllables (dynamic programming, prefers longer syllables).
+      const n = plain.length, best = Array(n + 1).fill(null);
+      best[n] = [];
+      for (let i = n - 1; i >= 0; i--)
+        for (let L = Math.min(6, n - i); L >= 1; L--) {
+          const syl = plain.slice(i, i + L);
+          if (VALID.has(syl) && best[i + L]) { best[i] = [[i, L], ...best[i + L]]; break; }
+        }
+      if (!best[0]) return null;
+      for (const [i, L] of best[0]) out.push({ s: plain.slice(i, i + L), t: Math.max(...tones.slice(i, i + L)) || 5, word: out.length && i === 0 });
+    }
+    return out;
+  }
+  function mark(s, t) {
+    if (t < 1 || t > 4) return s;
+    const pos = s.includes('a') ? s.indexOf('a') : s.includes('e') ? s.indexOf('e') : s.includes('ou') ? s.indexOf('o')
+      : Math.max(...['i', 'o', 'u', 'ü'].map(v => s.lastIndexOf(v)));
+    return s.slice(0, pos) + MARKS[s[pos]][t - 1] + s.slice(pos + 1);
+  }
+  function render(syls) { return syls.map((x, k) => (x.word ? ' ' : '') + mark(x.s, x.t)).join(''); }
+  function split(s) { const i = INITIALS.find(x => s.startsWith(x)) || ''; return [i, s.slice(i.length)]; }
+  function soundSwaps(s) {
+    const [ini, fin] = split(s), out = [];
+    for (const g of INIT_GROUPS) if (g.includes(ini)) for (const o of g) if (o !== ini) {
+      // j/q/x write ü as u; other initials need ü spelled out
+      let f = fin;
+      if ('jqx'.includes(ini) && !'jqx'.includes(o) && f.startsWith('u')) f = 'ü' + f.slice(1);
+      if ('jqx'.includes(o) && f.startsWith('ü')) f = 'u' + f.slice(1);
+      out.push(o + f);
+    }
+    for (const [a, b] of FINAL_PAIRS) {
+      if (fin === a) out.push(ini + b);
+      if (fin === b) out.push(ini + a);
+    }
+    return [...new Set(out)].filter(x => VALID.has(x) && x !== s);
+  }
+  const key = syls => syls.map(x => x.s + x.t).join('|');
+
+  // level: 'e' easy (other words), 'm' medium (one sound changed), 'h' hard (tone only)
+  function choices(correct, level, otherWords = []) {
+    const syls = parse(correct);
+    const seen = new Set([correct.toLowerCase()]);
+    const out = [];
+    const add = s => { const r = typeof s === 'string' ? s : render(s); if (!seen.has(r.toLowerCase())) { seen.add(r.toLowerCase()); out.push(r); } };
+    if (!syls || level === 'e') {
+      for (const w of shuffle(otherWords)) { if (out.length >= 3) break; if (w[0].toLowerCase() !== correct[0].toLowerCase() || !syls) add(w); }
+      for (const w of shuffle(otherWords)) { if (out.length >= 3) break; add(w); }
+      return out;
+    }
+    const toneVariants = () => {
+      const v = [];
+      for (let k = 0; k < syls.length; k++) for (const t of TONE_SWAP[syls[k].t]) v.push(syls.map((x, j) => j === k ? { ...x, t } : x));
+      if (syls.length > 1) v.push(syls.map(x => ({ ...x, t: TONE_SWAP[x.t][0] })));
+      return shuffle(v);
+    };
+    const soundVariants = () => shuffle(syls.flatMap((x, k) => soundSwaps(x.s).map(s => syls.map((y, j) => j === k ? { ...y, s } : y))));
+    const tv = toneVariants(), sv = soundVariants();
+    if (level === 'h') { tv.forEach(x => out.length < 3 && add(x)); sv.forEach(x => out.length < 3 && add(x)); }
+    else {
+      sv.slice(0, 2).forEach(add);
+      tv.forEach(x => out.length < 3 && add(x));
+      sv.forEach(x => out.length < 3 && add(x));
+    }
+    for (const w of shuffle(otherWords)) { if (out.length >= 3) break; add(w); }
+    return out;
+  }
+  // What kind of mistake: 'tone' if only tones differ, else 'sound'.
+  function errorType(correct, picked) {
+    const a = parse(correct), b = parse(picked);
+    if (a && b && a.map(x => x.s).join() === b.map(x => x.s).join()) return 'tone';
+    return 'sound';
+  }
+  // 5 easy / 15 medium / 10 hard per 30, first 3 always easy, no hard before #6.
+  function levels(n) {
+    const ne = Math.max(1, Math.round(n / 6)), nh = Math.round(n / 3), nm = n - ne - nh;
+    const head = Array(Math.min(3, ne)).fill('e');
+    let rest;
+    do rest = shuffle([...Array(ne - head.length).fill('e'), ...Array(nm).fill('m'), ...Array(nh).fill('h')]);
+    while (rest.slice(0, 2).includes('h') && nm + ne - head.length >= 2);
+    return [...head, ...rest];
+  }
+  return { parse, render, choices, errorType, levels };
+})();

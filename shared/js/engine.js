@@ -282,27 +282,49 @@ STEPS['keyboard-setup'] = async (st) => {
   return { name: 'Setup: pinyin keyboard', lines: [result] };
 };
 
-// ---------- check: character recognition ----------
+// ---------- check: character / word recognition ----------
+// ask: 'meaning' (default) → choices are "pinyin · meaning" of other items.
+// ask: 'pinyin' → choices are look-alike pinyin at mixed difficulty (5 easy / 15 medium / 10 hard per 30).
 STEPS['char-check'] = async (st) => {
   const items = st.items.map(([hz, p, m, g]) => ({ hz, p, m, g: g || 'c' }));
-  let right = 0; const known = [], wrong = [], idk = [];
+  const byPinyin = st.ask === 'pinyin';
+  const levels = byPinyin ? Pinyin.levels(items.length) : [];
+  const capital = w => w.charAt(0).toUpperCase() + w.slice(1);
+  let right = 0; const known = [], wrong = [], idk = [], perLevel = { e: [0, 0], m: [0, 0], h: [0, 0] }, errs = { tone: 0, sound: 0 };
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const opts = shuffle([it, ...shuffle(items.filter(x => x !== it && x.g === it.g)).slice(0, 3)]);
+    let labels, correctIdx, pickedName;
+    if (byPinyin) {
+      const isCap = it.p[0] !== it.p[0].toLowerCase();
+      let opts = Pinyin.choices(it.p, levels[i], items.filter(x => x !== it).map(x => x.p));
+      if (isCap) opts = opts.map(capital);
+      labels = shuffle([it.p, ...opts]);
+      correctIdx = labels.indexOf(it.p);
+      pickedName = k => labels[k];
+    } else {
+      const opts = shuffle([it, ...shuffle(items.filter(x => x !== it && x.g === it.g)).slice(0, 3)]);
+      labels = opts.map(o => `${o.p} · ${o.m}`);
+      correctIdx = opts.indexOf(it);
+      pickedName = k => opts[k].hz;
+    }
     const c = card(st.title, st.intro);
-    c.append(counter(i, items.length), h('div', { class: 'bigchar' }, it.hz));
-    const r = await askChoice(c, opts.map(o => `${o.p} · ${o.m}`), opts.indexOf(it), {
+    c.append(counter(i, items.length), h('div', { class: 'bigchar' + (it.hz.length > 2 ? ' long' : '') }, it.hz));
+    const r = await askChoice(c, labels, correctIdx, {
       grid: true,
       onReveal: () => { Voice.speak(it.hz); return h('div', { class: 'reveal' }, h('span', { class: 'bigish' }, it.hz), ` ${it.p} · ${it.m}`); },
     });
+    if (byPinyin) { perLevel[levels[i]][1]++; if (r.correct) perLevel[levels[i]][0]++; }
     if (r.correct) { right++; known.push(it.hz); }
     else if (r.idk) idk.push(it.hz);
-    else wrong.push(`${it.hz}(picked ${opts[r.chosen].hz})`);
+    else {
+      const picked = pickedName(r.chosen);
+      if (byPinyin) { const t = Pinyin.errorType(it.p, picked); errs[t]++; wrong.push(`${it.hz} ${it.p}(picked ${picked} · ${t})`); }
+      else wrong.push(`${it.hz}(picked ${picked})`);
+    }
   }
-  return {
-    name: st.title, score: [right, items.length],
-    lines: ['Knew: ' + (known.join(' ') || '-'), 'Wrong guess: ' + (wrong.join(' ') || '-'), "Didn't know: " + (idk.join(' ') || '-')],
-  };
+  const lines = ['Knew: ' + (known.join(' ') || '-'), 'Wrong: ' + (wrong.join(' ') || '-'), "Didn't know: " + (idk.join(' ') || '-')];
+  if (byPinyin) lines.unshift(`By level: easy ${perLevel.e.join('/')} · medium ${perLevel.m.join('/')} · hard (tones) ${perLevel.h.join('/')} · wrong picks: ${errs.tone} tone, ${errs.sound} sound`);
+  return { name: st.title, score: [right, items.length], lines };
 };
 
 // ---------- check: listening comprehension (audio only) ----------

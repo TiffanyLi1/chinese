@@ -44,8 +44,8 @@ window.LESSON = {
       ],
     },
     {
-      type: 'char-check', title: '📖 Word check',
-      intro: 'What does this word mean? Pick the answer — or click “I don\'t know.” No sound on purpose: this checks reading.',
+      type: 'char-check', title: '📖 Word check', ask: 'pinyin',
+      intro: 'How do you say this word? Pick the <b>exact</b> pinyin — watch the tones! Or click “I don\'t know.” No sound on purpose: this checks reading.',
       items: [
         ['爷爷', 'yéye', 'grandpa'], ['奶奶', 'nǎinai', 'grandma'], ['哥哥', 'gēge', 'older brother'], ['妹妹', 'mèimei', 'younger sister'],
         ['名字', 'míngzi', 'name'], ['今天', 'jīntiān', 'today'], ['明天', 'míngtiān', 'tomorrow'], ['现在', 'xiànzài', 'now'],
