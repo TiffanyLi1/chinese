@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Haima's Explorer Farm</title>
+<link rel="stylesheet" href="../shared/css/style.css">
+</head>
+<body>
+<header class="topbar"><div class="ltitle">🐴 Haima's Explorer Farm</div></header>
+<main>
+  <div class="hero">
+    <h1>海马的探险农场</h1>
+    <div class="zhtitle">Hǎimǎ de tànxiǎn nóngchǎng</div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="farm" id="farm"></div>
+  <div id="weeks"></div>
+
+  <details class="settings card">
+    <summary><b>⚙️ Settings & help</b></summary>
+    <p>Mom's email (saved only on this computer):</p>
+    <input class="text" id="momEmail" type="email" placeholder="Mom's email">
+    <div class="actions">
+      <button class="btn" id="saveEmail">Save email</button>
+      <button class="btn" id="testVoice">🔊 Test voice</button>
+      <button class="btn" id="resend">📨 Send waiting reports</button>
+    </div>
+    <p class="muted" id="setinfo"></p>
+    <p class="muted">Tips: use Google Chrome and stay online. Click any Chinese word to hear it. Switch keyboards with Ctrl + Space.</p>
+  </details>
+</main>
+<script src="config.js"></script>
+<script src="../shared/js/common.js"></script>
+<script src="lessons/catalog.js"></script>
+<script>
+const results = Store.get('results', {});
+
+// stats
+const done = Object.keys(results).length;
+document.getElementById('stats').append(
+  h('div', { class: 'stat' }, h('b', null, '🔥 ' + streak()), 'day streak'),
+  h('div', { class: 'stat' }, h('b', null, '✅ ' + done), 'lessons done'));
+
+// farm
+const farm = document.getElementById('farm');
+const items = Farm.items();
+if (items.length) farm.append(...items.map(x => h('span', { title: x.label }, x.e)));
+else farm.append(h('div', { class: 'empty' }, 'Your farm is empty. Finish lessons to grow crops and raise animals!'));
+
+// lessons
+let todayMarked = false;
+const weeks = document.getElementById('weeks');
+for (const w of CATALOG) {
+  const box = h('div', { class: 'week' }, h('h3', null, w.title));
+  for (const d of w.days) {
+    const r = results[d.id];
+    let cls = 'day';
+    if (!d.ready) cls += ' locked';
+    else if (!r && !todayMarked) { cls += ' today'; todayMarked = true; }
+    box.append(h('a', { class: cls, href: d.ready ? `lesson.html?id=${d.id}` : null },
+      h('span', { class: 'dname' }, `${d.name} · ${d.title}`, h('small', null, d.sub)),
+      r ? h('span', { class: 'badge' }, r.score != null ? `✓ ${r.score}%` : '✓ done')
+        : !d.ready ? h('span', { class: 'muted' }, 'coming soon')
+        : cls.includes('today') ? h('span', { class: 'badge' }, '▶ Today') : null));
+  }
+  weeks.append(box);
+}
+
+// settings
+const em = document.getElementById('momEmail');
+em.value = Store.get('momEmail', '');
+const info = document.getElementById('setinfo');
+const showInfo = () => { info.textContent = `Voice: ${Voice.name()} · Speech check: ${Ear.supported ? 'yes' : 'no (use Chrome)'} · Reports waiting to send: ${Outbox.count()}`; };
+document.getElementById('saveEmail').onclick = () => { Store.set('momEmail', em.value.trim()); info.textContent = 'Saved.'; };
+document.getElementById('testVoice').onclick = () => { Voice.speak('你好，海马！'); showInfo(); };
+document.getElementById('resend').onclick = async () => { await Outbox.flush(); showInfo(); };
+setTimeout(showInfo, 800);
+Outbox.flush();
+</script>
+</body>
+</html>
