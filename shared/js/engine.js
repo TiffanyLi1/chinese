@@ -47,8 +47,8 @@ function askChoice(parent, labels, correctIdx, { idk = true, grid = false, onRev
       fb.append(h('div', { class: correct ? 'good' : 'oops' }, correct ? '✅ Correct!' : (i < 0 ? 'No problem — here it is:' : '❌ Not quite. Here it is:')));
       if (onReveal) fb.append(onReveal());
       const out = { correct, idk: i < 0, chosen: i };
-      if (correct) setTimeout(() => res(out), onReveal ? 1400 : 700);
-      else nextBtn(fb).then(() => res(out));
+      // Answer stays on screen until he clicks Next (or presses Enter), so he can study it.
+      nextBtn(fb).then(() => res(out));
     }
   });
 }
