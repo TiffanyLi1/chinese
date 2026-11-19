@@ -213,11 +213,15 @@ function align(target, heard) {
   }
   return { dist: D[n][m], marks };
 }
+// The recognizer often hears his name 海马 as 海南 / 海妈 — accept those when the target says 海马.
+const NAME_FIX = [[/海[南妈麻吗码]/g, '海马']];
 function gradeSpeech(targetStr, alts) {
   const tgt = normZh(targetStr);
   let best = null;
   for (const alt of alts) {
-    const hd = normZh(alt), al = align(tgt, hd);
+    let hd = normZh(alt);
+    if (tgt.includes('海马')) for (const [rx, to] of NAME_FIX) hd = hd.replace(rx, to);
+    const al = align(tgt, hd);
     const sim = tgt.length ? 1 - al.dist / Math.max(tgt.length, hd.length || 1) : 0;
     if (!best || sim > best.sim) best = { sim, heard: alt, marks: al.marks, dist: al.dist };
   }
@@ -396,7 +400,7 @@ const Pinyin = (() => {
   }
   // 5 easy / 15 medium / 10 hard per 30, first 3 always easy, no hard before #6.
   function levels(n) {
-    const ne = Math.max(1, Math.round(n / 6)), nh = Math.round(n / 3), nm = n - ne - nh;
+    const ne = Math.min(n, Math.max(n >= 6 ? 3 : 1, Math.round(n / 6))), nh = Math.round(n / 3), nm = n - ne - nh;
     const head = Array(Math.min(3, ne)).fill('e');
     let rest;
     do rest = shuffle([...Array(ne - head.length).fill('e'), ...Array(nm).fill('m'), ...Array(nh).fill('h')]);

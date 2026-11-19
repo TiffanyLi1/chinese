@@ -12,6 +12,7 @@
   --sky: #2f6f9f;
   --zh: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
 }
+[hidden] { display: none !important; }
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -155,3 +156,38 @@ pre.report { white-space: pre-wrap; font-size: 13px; background: #fff; border: 1
 .btn.mic:disabled { opacity: .45; }
 .nopy rt { display: none; }
 .bigchar.long { font-size: 80px; }
+
+/* peek reading: pinyin hidden until he taps a word */
+.peekline ruby.tok { cursor: pointer; border-bottom: 2px dotted var(--line); }
+.peekline rt { visibility: hidden; }
+.peekline ruby.peeked rt { visibility: visible; color: var(--gold); }
+
+/* new words */
+.newword { text-align: center; }
+.newword .py { font-size: 26px; color: var(--sky); }
+.newword .en { font-size: 20px; }
+
+/* grammar / radical cards */
+.gcard .example { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.gcard .example .en { flex-basis: 100%; }
+.gcard .note { flex-basis: 100%; color: var(--muted); font-size: 15px; }
+.gcard .example.played { opacity: .85; }
+.formula { font-size: 20px; font-weight: 600; background: var(--green-soft); border-radius: 10px; padding: 8px 12px; margin: 8px 0; display: inline-block; }
+.bad-ex { color: var(--red); }
+.radgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; }
+.radgrid > div { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+.radgrid b { display: block; font-family: var(--zh); font-size: 40px; }
+.radgrid span { font-family: var(--zh); font-size: 22px; letter-spacing: 4px; }
+table.mw { border-collapse: collapse; margin: 8px 0; width: 100%; }
+table.mw td { border-top: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+table.mw td:first-child { font-family: var(--zh); font-size: 24px; white-space: nowrap; }
+
+/* word-order tiles */
+.tilerow { min-height: 64px; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border-radius: 12px; margin: 8px 0; }
+.tilerow.answer { background: #fff; border: 2px dashed var(--line); }
+.tilerow.bank { background: transparent; }
+.btn.tile { font-size: 24px; padding: 6px 12px; }
+.btn.tile rt { font-size: 12px; }
+
+/* fill in the blank */
+.blank { display: inline-block; min-width: 1.6em; border-bottom: 3px solid var(--gold); text-align: center; color: var(--gold); margin: 0 4px; }
