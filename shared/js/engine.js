@@ -54,7 +54,7 @@ function askChoice(parent, labels, correctIdx, { idk = true, grid = false, onRev
 }
 
 // Mic button + result area. Resolves with grade object when he has a result (or skip).
-function micButton(parent, { label = '🎤 Click and speak', onResult }) {
+function micButton(parent, { label = '🎤 Click and speak', onResult, long = false }) {
   const status = h('div', { class: 'micstatus' });
   const btn = h('button', { class: 'btn mic big' }, label);
   let listening = false;
@@ -63,7 +63,7 @@ function micButton(parent, { label = '🎤 Click and speak', onResult }) {
     listening = true; btn.classList.add('on'); btn.textContent = '⏺ Listening… (click when done)';
     status.textContent = '';
     Voice.stop();
-    const r = await Ear.listen();
+    const r = await Ear.listen(long ? 45000 : 10000, long);
     listening = false; btn.classList.remove('on'); btn.textContent = '🎤 Try again';
     onResult(r, status);
   };
@@ -157,7 +157,8 @@ STEPS['read-check'] = async (st) => {
   for (let i = 0; i < st.items.length; i++) {
     const it = st.items[i], text = zhText(it.zh);
     const c = card(st.title, st.intro);
-    c.append(counter(i, st.items.length), h('div', { class: 'line big nopy' }, renderZh(it.zh, { speak: false })));
+    c.append(counter(i, st.items.length), h('div', { class: 'line big nopy' }, renderZh(it.zh, { speak: false })),
+      it.q && h('p', { class: 'en big' }, '❓ ' + it.q));
     const opts = shuffle(it.opts.map((o, k) => ({ o, k })));
     const r = await askChoice(c, opts.map(x => x.o), opts.findIndex(x => x.k === 0), {
       onReveal: () => { Voice.speak(text); return h('div', { class: 'reveal' }, renderZh(it.zh), h('div', { class: 'en' }, it.opts[0])); },
@@ -408,13 +409,16 @@ STEPS['tone-check'] = async (st) => {
 // peek: true → pinyin hidden; tapping a word shows its pinyin (no sound). Peeks are counted in the report.
 STEPS['read-aloud'] = async (st) => {
   let right = 0; const lines = [], peekedAll = {};
+  const peekLater = st.peek === 'after';
   for (let i = 0; i < st.items.length; i++) {
     const zh = st.items[i], text = zhText(zh);
     const c = card(st.title, st.intro);
     c.append(counter(i, st.items.length));
-    const peeked = new Set();
+    const peeked = new Set(), attempts = [];
+    const peekNote = h('div', { class: 'muted' }, peekLater ? '👀 Read it on your own first. After your first try, you can tap a word to see its pinyin.' : '👆 Stuck on a word? Tap it to see its pinyin.');
     const zhEl = renderZh(zh, { speak: false, cls: st.peek ? 'peekline' : '' });
     if (st.peek) zhEl.querySelectorAll('ruby.tok').forEach(r => r.addEventListener('click', () => {
+      if (peekLater && !attempts.length) { peekNote.classList.add('oops'); return; }
       if (r.classList.contains('peeked')) return;
       r.classList.add('peeked');
       const w = r.firstChild.textContent;
@@ -422,14 +426,13 @@ STEPS['read-aloud'] = async (st) => {
     }));
     const line = h('div', { class: 'line big' }, zhEl);
     c.append(line);
-    if (st.peek) c.append(h('div', { class: 'muted' }, '👆 Stuck on a word? Tap it to see its pinyin.'));
+    if (st.peek) c.append(peekNote);
     if (!Ear.supported) {
       c.append(h('div', { class: 'tip' }, EAR_ERRORS.unsupported));
       await nextBtn(c);
       lines.push(`⏭ ${text} (no speech recognition)`);
       continue;
     }
-    const attempts = [];
     let heardModel = false;
     const outcome = await new Promise(res => {
       const after = h('div', { class: 'actions' });
@@ -439,7 +442,8 @@ STEPS['read-aloud'] = async (st) => {
           status.innerHTML = '';
           if (r.error) { status.append(h('div', { class: 'oops' }, EAR_ERRORS[r.error] || ('Problem: ' + r.error))); if (r.error !== 'no-speech') after.hidden = false; return; }
           const g = gradeSpeech(zh, r.alts);
-          attempts.push({ g, heardModel });
+          attempts.push({ g, heardModel, peeks: peeked.size });
+          if (peekLater && attempts.length === 1) { peekNote.classList.remove('oops'); peekNote.textContent = '👆 Now you can tap any word you were stuck on to see its pinyin.'; }
           status.append(h('div', { class: 'heardrow' }, 'Target: ', renderMarks(zh, g.marks)),
             h('div', { class: 'heardrow' }, 'I heard: ', h('b', { class: 'heard' }, g.heard || '—'), ' ', playbackBtn(r.audioUrl)),
             h('div', { class: g.pass ? 'good' : 'oops' }, g.pass ? '✅ Great reading!' : '🟠 Close — red characters were not clear.'));
@@ -463,7 +467,7 @@ STEPS['read-aloud'] = async (st) => {
     else lines.push(attempts.map((a, k) => `${k === 0 ? '' : '   retry' + (a.heardModel ? ' after model' : '') + ': '}${a.g.pass ? '✅' : '❌'} ${k === 0 ? text + pk + ' → ' : ''}heard "${a.g.heard}" (${Math.round(a.g.sim * 100)}%)`).join('\n'));
   }
   const head = ['(score = correct on 1st try, before hearing the model)'];
-  if (st.peek) head.push('Words he tapped for pinyin: ' + (Object.keys(peekedAll).join(' ') || 'none'));
+  if (st.peek) head.push((peekLater ? 'Peeking allowed only after the 1st try. ' : '') + 'Words he tapped for pinyin: ' + (Object.keys(peekedAll).join(' ') || 'none'));
   return { name: st.title, score: [right, st.items.length], lines: [...head, ...lines] };
 };
 
@@ -486,7 +490,8 @@ STEPS['free-speak'] = async (st) => {
     await new Promise(res => {
       const after = h('div', { class: 'actions' }, h('button', { class: 'btn ghost', onclick: () => res() }, 'Skip ▶'));
       micButton(c, {
-        label: '🎤 Click and answer in Chinese',
+        long: (it.min || 4) >= 10,
+        label: (it.min || 4) >= 10 ? '🎤 Click, say 2–3 sentences, then click again' : '🎤 Click and answer in Chinese',
         onResult(r, status) {
           status.innerHTML = '';
           if (r.error) { status.append(h('div', { class: 'oops' }, EAR_ERRORS[r.error] || ('Problem: ' + r.error))); return; }
@@ -521,7 +526,7 @@ function answerOk(it, said) {
 STEPS['new-words'] = async (st) => {
   const items = st.items.map(([hz, p, m]) => ({ hz, p, m }));
   const said = [];
-  for (let i = 0; i < items.length; i++) {
+  for (let i = 0; i < (st.review ? 0 : items.length); i++) {
     const it = items[i];
     const c = card(st.title, st.intro || 'Listen, look at the characters, and say the word. Then click Next.');
     c.append(counter(i, items.length),
@@ -553,7 +558,7 @@ STEPS['new-words'] = async (st) => {
   const order = shuffle(items);
   for (let i = 0; i < order.length; i++) {
     const it = order[i];
-    const c = card('⚡ Quick check', 'No pinyin, no sound: what does it mean?');
+    const c = card(st.review ? st.title : '⚡ Quick check', st.review ? (st.intro || 'Words from before. No pinyin, no sound: what does it mean?') : 'No pinyin, no sound: what does it mean?');
     c.append(counter(i, order.length), h('div', { class: 'bigchar' + (it.hz.length > 2 ? ' long' : '') }, it.hz));
     const opts = shuffle([it, ...shuffle(items.filter(x => x !== it)).slice(0, 3)]);
     const r = await askChoice(c, opts.map(o => o.m), opts.indexOf(it), {
@@ -565,7 +570,7 @@ STEPS['new-words'] = async (st) => {
   }
   return {
     name: st.title, score: [right, items.length],
-    lines: ['(score = quick check: knew the meaning from characters only)', 'Said: ' + said.join(' '), 'Missed: ' + (missed.join(' ') || '-')],
+    lines: ['(score = knew the meaning from characters only)', ...(st.review ? [] : ['Said: ' + said.join(' ')]), 'Missed: ' + (missed.join(' ') || '-')],
   };
 };
 
@@ -688,6 +693,47 @@ STEPS.quiz = async (st) => {
     lines.push(`${r.correct ? '✅' : r.idk ? '🤷' : '❌'} ${it.show || ''} ${it.q.replace(/<[^>]+>/g, '')}${r.correct || r.idk ? '' : ' → picked "' + opts[r.chosen].o + '"'}`);
   }
   return { name: st.title, score: [right, st.items.length], lines };
+};
+
+// ---------- free writing: type an answer with the pinyin keyboard (STAMP writing is typed) ----------
+// items: {q, en, hint, need: [words], min (characters), example, exampleEn}
+STEPS['free-write'] = async (st) => {
+  let ok = 0; const lines = [];
+  for (let i = 0; i < st.items.length; i++) {
+    const it = st.items[i], q = zhText(it.q), min = it.min || 6;
+    const c = card(st.title, st.intro || 'Type your answer in Chinese (Ctrl + Space for the pinyin keyboard). Write full sentences.');
+    c.append(counter(i, st.items.length), h('div', { class: 'line big' }, speakBtns(q), renderZh(it.q)), h('div', { class: 'en' }, it.en));
+    if (it.hint) c.append(h('div', { class: 'hint' }, '💡 You can start with: ', renderZh(it.hint)));
+    const box = h('textarea', { class: 'text zhinput', lang: 'zh-CN', rows: 4, placeholder: 'Type in Chinese…' });
+    const count = h('div', { class: 'muted' }, `0 / ${min}+ characters`);
+    box.addEventListener('input', () => { count.textContent = `${cjkOnly(box.value).length} / ${min}+ characters`; });
+    const fb = h('div', { class: 'feedback' });
+    c.append(box, count, fb);
+    box.focus();
+    const tries = [];
+    const good = await new Promise(res => {
+      const check = () => {
+        const v = box.value.trim(), zh = cjkOnly(v);
+        if (!zh) { fb.innerHTML = '<div class="oops">Type in Chinese first (Ctrl + Space switches the keyboard).</div>'; return; }
+        tries.push(v);
+        const pass = zh.length >= min && (!it.need || it.need.some(w => zh.includes(w)));
+        fb.innerHTML = '';
+        if (!pass && tries.length < 2) {
+          fb.append(h('div', { class: 'oops' }, zh.length < min ? `Write a bit more — at least ${min} characters.` : `Use ${it.need.join(' or ')} in your answer.`));
+          return;
+        }
+        fb.append(h('div', { class: pass ? 'good' : 'oops' }, pass ? '✅ Nice writing!' : 'Good try. Here is one way to say it:'));
+        if (it.example) fb.append(h('div', { class: 'reveal' }, speakBtns(zhText(it.example)), renderZh(it.example), it.exampleEn && h('div', { class: 'en' }, it.exampleEn)));
+        checkBtn.disabled = true; box.readOnly = true;
+        nextBtn(fb).then(() => res(pass));
+      };
+      const checkBtn = h('button', { class: 'btn primary big', onclick: check }, 'Check ✔');
+      c.append(h('div', { class: 'actions' }, h('button', { class: 'btn ghost', onclick: () => res(null) }, 'Skip ▶'), checkBtn));
+    });
+    if (good) ok++;
+    lines.push(`${good ? '✅' : good === null && !tries.length ? '⏭' : '❌'} Q: ${q} → ${tries.length ? tries.map(t => '“' + t + '”').join(' / ') : '(skipped)'}`);
+  }
+  return { name: st.title, score: [ok, st.items.length], lines: ['(score = a real answer: enough characters and uses the target word)', ...lines] };
 };
 
 // ---------- typing with the pinyin keyboard ----------

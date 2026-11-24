@@ -103,8 +103,8 @@ body.hide-py rt { visibility: hidden; }
 .marks .bad { color: var(--red); text-decoration: underline wavy; }
 .micstatus { min-height: 10px; }
 
-input.text { width: 100%; font: inherit; font-size: 22px; padding: 12px 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
-input.text:focus { outline: none; border-color: var(--green); }
+input.text, textarea.text { width: 100%; resize: vertical; font: inherit; font-family: var(--zh); font-size: 22px; padding: 12px 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
+input.text:focus, textarea.text:focus { outline: none; border-color: var(--green); }
 .zhinput { font-family: var(--zh); }
 .guide { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 4px 14px; margin: 10px 0; }
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; }

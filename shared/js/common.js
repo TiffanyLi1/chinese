@@ -146,7 +146,8 @@ const Ear = {
     return this.stream;
   },
   // Resolves {alts: [transcripts], error, audioUrl}
-  async listen(maxMs = 10000) {
+  // continuous: keep listening through pauses (long answers) until he clicks again or maxMs.
+  async listen(maxMs = 10000, continuous = false) {
     if (!this.supported) return { alts: [], error: 'unsupported' };
     const stream = await this.getStream();
     let rec = null, chunks = [];
@@ -155,9 +156,13 @@ const Ear = {
     }
     return new Promise(resolve => {
       const r = new this.SR();
-      r.lang = 'zh-CN'; r.interimResults = false; r.maxAlternatives = 5; r.continuous = false;
+      r.lang = 'zh-CN'; r.interimResults = false; r.maxAlternatives = continuous ? 1 : 5; r.continuous = continuous;
       const alts = []; let error = null;
-      r.onresult = e => { for (const res of e.results) for (let i = 0; i < res.length; i++) alts.push(res[i].transcript); };
+      r.onresult = e => {
+        alts.length = 0;
+        if (continuous) alts.push([...e.results].map(res => res[0].transcript).join('，'));
+        else for (const res of e.results) for (let i = 0; i < res.length; i++) alts.push(res[i].transcript);
+      };
       r.onerror = e => { error = e.error; };
       r.onend = () => {
         clearTimeout(t); this.current = null;
